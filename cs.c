@@ -17,7 +17,7 @@
 #include "utils.h"
 #include "MCRegisterInfo.h"
 
-#ifdef CAPSTONE_USE_SYS_DYN_MEM
+#if !defined(CAPSTONE_HAS_OSXKERNEL) && !defined(CAPSTONE_DIET)
 #define INSN_CACHE_SIZE 32
 #else
 // reduce stack variable size for kernel/firmware
@@ -79,11 +79,28 @@ static void archs_enable(void)
 unsigned int all_arch = 0;
 
 #ifdef CAPSTONE_USE_SYS_DYN_MEM
+#ifndef CAPSTONE_HAS_OSXKERNEL
 cs_malloc_t cs_mem_malloc = malloc;
 cs_calloc_t cs_mem_calloc = calloc;
 cs_realloc_t cs_mem_realloc = realloc;
 cs_free_t cs_mem_free = free;
 cs_vsnprintf_t cs_vsnprintf = vsnprintf;
+#else
+extern void* kern_os_malloc(size_t size);
+extern void kern_os_free(void* addr);
+extern void* kern_os_realloc(void* addr, size_t nsize);
+
+static void* cs_kern_os_calloc(size_t num, size_t size)
+{
+	return kern_os_malloc(num * size); // malloc bzeroes the buffer
+}
+
+cs_malloc_t cs_mem_malloc = kern_os_malloc;
+cs_calloc_t cs_mem_calloc = cs_kern_os_calloc;
+cs_realloc_t cs_mem_realloc = kern_os_realloc;
+cs_free_t cs_mem_free = kern_os_free;
+cs_vsnprintf_t cs_vsnprintf = vsnprintf;
+#endif
 #else
 cs_malloc_t cs_mem_malloc = NULL;
 cs_calloc_t cs_mem_calloc = NULL;
@@ -584,7 +601,7 @@ size_t cs_disasm(csh ud, const uint8_t *buffer, size_t size, uint64_t offset, si
 		total = NULL;
 	} else if (f != cache_size) {
 		// total did not fully use the last cache, so downsize it
-		void *tmp = cs_mem_realloc(total, total_size - (cache_size - f) * sizeof(*insn_cache));
+		tmp = cs_mem_realloc(total, total_size - (cache_size - f) * sizeof(*insn_cache));
 		if (tmp == NULL) {	// insufficient memory
 			// free all detail pointers
 			if (handle->detail) {

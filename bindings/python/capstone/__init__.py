@@ -1,5 +1,6 @@
 # Capstone Python bindings, by Nguyen Anh Quynnh <aquynh@gmail.com>
 import sys
+from platform import system
 _python2 = sys.version_info[0] < 3
 if _python2:
     range = xrange
@@ -226,8 +227,23 @@ if _found == False:
             break
         except OSError:
             pass
-    if _found == False:
-        raise ImportError("ERROR: fail to load the dynamic library.")
+
+# Attempt Darwin specific load (10.11 specific),
+# since LD_LIBRARY_PATH is not guaranteed to exist
+if (_found == False) and (system() == 'Darwin'):
+    _lib_path = '/usr/local/lib/'
+    for _lib in _all_libs:
+        try:
+            _lib_file = join(_lib_path, _lib)
+            # print "Trying to load:", _lib_file
+            _cs = ctypes.cdll.LoadLibrary(_lib_file)
+            _found = True
+            break
+        except OSError:
+            pass
+
+if _found == False:
+    raise ImportError("ERROR: fail to load the dynamic library.")
 
 
 # low-level structure for C code
@@ -303,8 +319,13 @@ class CsError(Exception):
     def __init__(self, errno):
         self.errno = errno
 
-    def __str__(self):
-        return _cs.cs_strerror(self.errno)
+    if _python2:
+        def __str__(self):
+            return _cs.cs_strerror(self.errno)
+
+    else:
+        def __str__(self):
+            return _cs.cs_strerror(self.errno).decode()
 
 
 # return the core's version
@@ -875,8 +896,7 @@ def debug():
 
     all_archs = ""
     keys = archs.keys()
-    keys.sort()
-    for k in keys:
+    for k in sorted(keys):
         if cs_support(archs[k]):
             all_archs += "-%s" % k
 
